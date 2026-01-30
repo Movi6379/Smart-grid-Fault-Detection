@@ -9,8 +9,8 @@ st.title("⚡ Smart Grid Fault Analysis & Rectification")
 # Load Data
 @st.cache_data
 def load_data():
-    fault_df = pd.read_csv('fault_dataset.csv')
-    asset_df = pd.read_csv('grid_asset_data.csv')
+    fault_df = pd.read_csv('data/fault_dataset.csv')
+    asset_df = pd.read_csv('data/grid_asset_data.csv')
     return fault_df, asset_df
 
 fault_df, asset_df = load_data()
