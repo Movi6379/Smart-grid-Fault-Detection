@@ -4,76 +4,92 @@ import plotly.express as px
 
 # Set Page Config
 st.set_page_config(page_title="Smart Grid Fault Dashboard", layout="wide")
+
 st.title("⚡ Smart Grid Fault Analysis & Rectification")
 
-# Load Data
+# 1. ROBUST DATA LOADING
 @st.cache_data
 def load_data():
-    # Adding error handling for file paths
     try:
-        fault_df = pd.read_csv('fault_dataset.csv')
-        asset_df = pd.read_csv('grid_asset_data.csv')
-        return fault_df, asset_df
-    except FileNotFoundError:
-        st.error("Data files not found. Please ensure 'fault_dataset.csv' and 'grid_asset_data.csv' exist.")
-        return pd.DataFrame(), pd.DataFrame()
+        # Loading your specific datasets
+        f_df = pd.read_csv('fault_dataset.csv')
+        a_df = pd.read_csv('grid_asset_data.csv')
+        return f_df, a_df
+    except FileNotFoundError as e:
+        st.error(f"Missing Data File: {e}")
+        return None, None
 
 fault_df, asset_df = load_data()
 
-if not fault_df.empty and not asset_df.empty:
-    # 1. FAULT AFFECTED AREA (SIDEBAR)
+# Only proceed if data loaded successfully
+if fault_df is not None and asset_df is not None:
+    
+    # 2. SIDEBAR FILTERS
     st.sidebar.header("Filter Affected Area")
-    line_options = fault_df['line'].dropna().unique()
-    line_selection = st.sidebar.selectbox("Select Distribution Line", line_options)
     
-    sub_options = asset_df['Substation_ID'].unique()
-    substation_selection = st.sidebar.selectbox("Select Substation", sub_options)
-
-    # Filter data
-    line_data = fault_df[fault_df['line'] == line_selection]
-    
-    # Safety check for empty slice
-    if not line_data.empty:
-        fault_type = line_data['fault'].iloc[0]
+    # Ensure 'line' column exists
+    if 'line' in fault_df.columns:
+        line_list = fault_df['line'].dropna().unique()
+        line_selection = st.sidebar.selectbox("Select Distribution Line", line_list)
+        
+        # Filter for selected line
+        line_data = fault_df[fault_df['line'] == line_selection]
+        
+        # Determine fault type safely
+        if not line_data.empty and 'fault' in line_data.columns:
+            current_fault = line_data['fault'].iloc[0]
+        else:
+            current_fault = "no fault"
     else:
-        fault_type = "Unknown"
+        st.error("Column 'line' not found in fault_dataset.csv")
+        st.stop()
 
-    # 2. RECTIFICATION LOGIC
+    sub_selection = st.sidebar.selectbox("Select Substation", asset_df['Substation_ID'].unique())
+
+    # 3. RECTIFICATION LOGIC
     def get_rectification(f_type):
         rect_map = {
-            '3psc': "Emergency Trip: Open Three-Phase Breaker. Check for insulation failure.",
-            'spgf': "Ground Fault Detected: Isolate affected phase and check grounding transformer.",
-            'Overload': "Load Shedding: Reduce non-critical load in SS_001 area.",
-            'UnderVoltage': "Capacitor Bank Activation: Boost voltage at the substation level.",
-            'no fault': "System Healthy"
+            '3psc': "🚨 **Emergency Trip:** Open Three-Phase Breaker. Check for insulation failure.",
+            'spgf': "⚠️ **Ground Fault:** Isolate affected phase and check grounding transformer.",
+            'Overload': "📉 **Load Shedding:** Reduce non-critical load in current sector.",
+            'UnderVoltage': "🔋 **Capacitor Bank:** Activate banks to boost voltage at substation.",
+            'no fault': "✅ **System Healthy:** No immediate action required."
         }
-        return rect_map.get(f_type, "Standard Inspection Required")
+        return rect_map.get(f_type, "🔍 **Standard Inspection Required**")
 
-    # 3. DASHBOARD LAYOUT
-    col1, col2 = st.columns(2)
+    # 4. DASHBOARD LAYOUT
+    col1, col2 = st.columns([1, 2])
 
     with col1:
-        st.subheader(f"📍 Fault Location: {line_selection}")
-        st.metric("Detected Fault Type", fault_type)
-        st.info(f"**Recommended Rectification:** {get_rectification(fault_type)}")
+        st.subheader("📍 Status Report")
+        st.write(f"**Location:** {line_selection}")
+        st.metric("Detected Fault", str(current_fault).upper())
+        st.info(get_rectification(current_fault))
 
     with col2:
         st.subheader("Voltage Profile Analysis")
-        # Ensure the columns exist before plotting
-        volt_cols = [c for c in ['Ua1', 'Ub1', 'Uc1'] if c in line_data.columns]
-        if volt_cols:
-            fig = px.line(line_data, y=volt_cols, title=f"3-Phase Voltage at {line_selection}")
+        # Checking for the specific voltage columns in your dataset
+        v_cols = [c for c in ['Ua1', 'Ub1', 'Uc1'] if c in line_data.columns]
+        if v_cols:
+            fig = px.line(line_data, y=v_cols, title=f"3-Phase Voltage: {line_selection}")
             st.plotly_chart(fig, use_container_width=True)
+        else:
+            st.warning("Voltage columns (Ua1, Ub1, Uc1) not found in dataset.")
 
-    # 4. ASSET MONITORING
+    # 5. ASSET MONITORING
     st.divider()
     st.subheader("Substation Asset Health Monitor")
-    sub_data = asset_df[asset_df['Substation_ID'] == substation_selection]
     
-    fig_asset = px.bar(sub_data, x='Asset_ID', y='Voltage_V', color='Asset_Type', 
-                       title=f"Voltage Stability across {substation_selection}")
-    st.plotly_chart(fig_asset, use_container_width=True)
+    sub_data = asset_df[asset_df['Substation_ID'] == sub_selection]
+    
+    if not sub_data.empty:
+        fig_asset = px.bar(sub_data, x='Asset_ID', y='Voltage_V', color='Asset_Type', 
+                           title=f"Voltage Stability: {sub_selection}")
+        st.plotly_chart(fig_asset, use_container_width=True)
 
-    # Display raw events
+    # 6. RAW DATA TOGGLE
     if st.checkbox("Show Recent Fault Events"):
-        st.write(asset_df[['Timestamp', 'Substation_ID', 'Fault_Event', 'Asset_Type']].dropna())
+        st.dataframe(asset_df[['Timestamp', 'Substation_ID', 'Fault_Event', 'Asset_Type']].dropna())
+
+else:
+    st.info("Upload your CSV files to the repository to begin analysis.")
